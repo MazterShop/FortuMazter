@@ -6,6 +6,29 @@ const app = (() => {
   let historyFilterMode = 'current_month'; // 'current_month' | 'specific_date' | 'all'
   let historySpecificDate = '';
 
+  function startFaviconEffect() {
+    const faviconEl = document.getElementById('favicon');
+    if (!faviconEl) return;
+
+    const frames = [
+      { color: '#00f5d4', strokeWidth: 4, fontSize: 38 },
+      { color: '#ff6b00', strokeWidth: 5, fontSize: 41 },
+      { color: '#39ff14', strokeWidth: 4, fontSize: 38 },
+      { color: '#facc15', strokeWidth: 5, fontSize: 40 }
+    ];
+    let step = 0;
+
+    const updateFrame = () => {
+      const f = frames[step];
+      const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect x='2' y='2' width='60' height='60' rx='14' fill='#050a18' stroke='${f.color}' stroke-width='${f.strokeWidth}'/><text x='50%' y='54%' dominant-baseline='middle' text-anchor='middle' font-family='Arial, sans-serif' font-weight='900' font-size='${f.fontSize}' fill='${f.color}'>F</text></svg>`;
+      faviconEl.href = 'data:image/svg+xml,' + encodeURIComponent(svg);
+      step = (step + 1) % frames.length;
+    };
+
+    updateFrame();
+    setInterval(updateFrame, 1000);
+  }
+
   function escapeHTML(str) {
     if (typeof str !== 'string') return str;
     return str.replace(/[&<>'"]/g, tag => ({
@@ -1255,6 +1278,7 @@ const app = (() => {
   }
 
   document.addEventListener('DOMContentLoaded', () => {
+    startFaviconEffect();
     renderAll();
     checkTimersAndDraws();
   });
