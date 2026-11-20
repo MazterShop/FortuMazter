@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="default">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <title>FortuMazter // Sistema Cuántico de Rifas</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;800&family=Plus+Jakarta+Sans:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Fondo Animado Futurista con Efecto Fuego Cuántico -->
+  <div class="cyber-bg">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+    <div class="quantum-fire-bg"></div>
+    <div class="grid-overlay"></div>
+  </div>
+
+  <!-- Notificaciones Flotantes (Toast) -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Barra de Navegación Superior -->
+  <header class="navbar glass-panel">
+    <div class="brand" onclick="app.navigate('vitrina')">
+      <span class="brand-pulse"></span>
+      <h1>FORTU<span class="badge-year">MAZTER</span></h1>
+    </div>
+
+    <nav class="nav-links" id="nav-links">
+      <button class="nav-btn active" data-view="vitrina" onclick="app.navigate('vitrina')">Vitrina en Vivo</button>
+      <button class="nav-btn" data-view="voting" onclick="app.navigate('voting')">Próximos Premios</button>
+      <button class="nav-btn" data-view="history" onclick="app.navigate('history')">Historial Global</button>
+      <button class="nav-btn hidden" id="btn-nav-seller" data-view="seller-panel" onclick="app.navigate('seller-panel')">Red Vendedores</button>
+      <button class="nav-btn hidden" id="btn-nav-user" data-view="user-panel" onclick="app.navigate('user-panel')">Mi Bóveda</button>
+      <button class="nav-btn hidden" id="btn-nav-admin" data-view="admin-panel" onclick="app.navigate('admin-panel')">Núcleo Admin</button>
+    </nav>
+
+    <div class="nav-right-controls">
+      <button id="cart-floating-btn" class="cart-icon-btn hidden" onclick="app.openCartModal()">
+        🛒 Carrito <span id="cart-badge-count" class="cart-badge">0</span>
+      </button>
+
+      <div class="auth-controls" id="auth-controls">
+        <button class="btn-cyber-outline" onclick="app.openAuthModal('login')">Acceso</button>
+        <button class="btn-cyber-primary" onclick="app.openAuthModal('register')">Registro</button>
+      </div>
+
+      <div class="user-session hidden" id="user-session">
+        <div class="user-chip">
+          <span class="role-tag" id="header-role">CLIENTE</span>
+          <span id="header-username">Usuario</span>
+        </div>
+        <button class="btn-cyber-danger" onclick="app.logout()">Salir</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- CONTENEDOR PRINCIPAL -->
+  <main class="main-container">
+
+    <!-- ================= 1. VITRINA PÚBLICA EN VIVO ================= -->
+    <section id="view-vitrina" class="view-section active">
+      <div id="banner-ref-client" class="glass-panel hidden" style="padding: 12px 20px; margin-bottom: 16px; border-color: #10b981; color: #10b981; text-align: center; font-weight: 700;">
+        🎟️ Estás comprando a través del enlace del distribuidor: <span id="span-ref-name" style="color: #fff;"></span>
+      </div>
+
+      <div class="hero-banner glass-panel">
+        <div class="hero-text">
+          <span class="cyber-tag">PROTOCOLO DE SORTEO AUTOMATIZADO</span>
+          <h2>Sorteos FortuMazter</h2>
+          <p>Selecciona tus boletos, agrégalos al carrito y participa. Al finalizar el temporizador, el sistema elegirá al ganador automáticamente.</p>
+        </div>
+        <div class="hero-kpis">
+          <div class="kpi-box">
+            <span class="kpi-num" id="kpi-total-raffles">0</span>
+            <span class="kpi-label">Rifas Activas</span>
+          </div>
+          <div class="kpi-box">
+            <span class="kpi-num text-emerald" id="kpi-avail-tickets">0</span>
+            <span class="kpi-label">Disponibles</span>
+          </div>
+          <div class="kpi-box">
+            <span class="kpi-num text-amber" id="kpi-reserved-tickets">0</span>
+            <span class="kpi-label">En Reserva</span>
+          </div>
+          <div class="kpi-box">
+            <span class="kpi-num text-cyan" id="kpi-sold-tickets">0</span>
+            <span class="kpi-label">Pagados</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="raffle-selector-bar" id="vitrina-raffle-tabs"></div>
+      <div id="vitrina-active-container" class="vitrina-workspace"></div>
+    </section>
+
+    <!-- ================= 2. PRÓXIMOS PREMIOS (VOTACIÓN) ================= -->
+    <section id="view-voting" class="view-section hidden">
+      <div class="hero-banner glass-panel" style="margin-bottom: 24px;">
+        <div class="hero-text">
+          <span class="cyber-tag">ELECCIÓN DE LA COMUNIDAD FORTUMAZTER</span>
+          <h2>Vota por el Próximo Premio</h2>
+          <p>Califica y vota por los artículos que te gustaría ganar. El artículo con mayor puntuación será elegido para nuestra próxima rifa oficial.</p>
+        </div>
+        <div class="hero-kpis">
+          <div class="kpi-box">
+            <span class="kpi-num text-cyan" id="kpi-voting-items">0</span>
+            <span class="kpi-label">Artículos</span>
+          </div>
+          <div class="kpi-box">
+            <span class="kpi-num text-emerald" id="kpi-voting-total-votes">0</span>
+            <span class="kpi-label">Votos Totales</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="voting-prizes-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 20px;"></div>
+    </section>
+
+    <!-- ================= 3. HISTORIAL GLOBAL DE GANADORES ================= -->
+    <section id="view-history" class="view-section hidden">
+      <div class="section-header" style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px;">
+        <div>
+          <h2>Registro Histórico de Sorteos</h2>
+          <p id="history-subtitle">Mostrando sorteos finalizados del mes actual.</p>
+        </div>
+
+        <!-- Filtro por fecha -->
+        <div class="glass-panel" style="padding: 10px 16px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <label for="history-date-filter" style="font-size: 0.8rem; color: var(--primary); font-weight: 700;">Buscar por fecha:</label>
+          <input type="date" id="history-date-filter" onchange="app.filterHistoryByDate(this.value)" style="background: rgba(5, 10, 24, 0.85); border: 1px solid rgba(255, 255, 255, 0.2); color: #fff; padding: 6px 10px; border-radius: 8px; outline: none; font-size: 0.85rem;">
+          <button class="btn-xs btn-edit" onclick="app.resetHistoryFilter()">Mes Actual</button>
+          <button class="btn-xs btn-warn" onclick="app.showAllHistory()">Ver Todo</button>
+        </div>
+      </div>
+
+      <div class="glass-panel table-wrapper">
+        <table class="cyber-table">
+          <thead>
+            <tr>
+              <th>Sorteo / Rifa</th>
+              <th>Número Ganador</th>
+              <th>Ganador Verificado</th>
+              <th>Estado Final</th>
+              <th>Fecha de Cierre</th>
+            </tr>
+          </thead>
+          <tbody id="global-history-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= 4. PANEL DE VENDEDORES (RED DE DISTRIBUCIÓN) ================= -->
+    <section id="view-seller-panel" class="view-section hidden">
+      <div class="section-header">
+        <h2>Panel de Distribución y Red de Vendedores</h2>
+        <p>Comparte tu enlace único de referido y obtén comisiones fijas por cada boleto colocado.</p>
+      </div>
+
+      <div class="glass-panel" style="padding: 24px; margin-bottom: 20px;">
+        <h3 style="margin-bottom: 10px;">Tu Enlace Único de Referido</h3>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 12px;">Cualquier cliente que ingrese a la plataforma usando este enlace quedará asociado a tu cuenta de vendedor.</p>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+          <input type="text" id="seller-ref-link-input" readonly style="flex: 1; min-width: 280px; background: rgba(0,0,0,0.5); border: 1px solid var(--primary); color: var(--primary); padding: 10px 14px; border-radius: 8px; font-family: monospace;" />
+          <button class="btn-cyber-primary" onclick="app.copySellerLink()">Copiar Enlace</button>
+        </div>
+      </div>
+
+      <div class="user-stats-grid">
+        <div class="stat-card glass-panel">
+          <span class="stat-title">Comisiones Acumuladas</span>
+          <strong class="stat-val text-emerald" id="seller-stat-commission">$0 COP</strong>
+        </div>
+        <div class="stat-card glass-panel">
+          <span class="stat-title">Boletos Colocados</span>
+          <strong class="stat-val text-cyan" id="seller-stat-sold">0</strong>
+        </div>
+      </div>
+
+      <div class="glass-panel table-wrapper">
+        <h3>Historial de Ventas y Comisiones Generadas</h3>
+        <table class="cyber-table">
+          <thead>
+            <tr>
+              <th>Rifa</th>
+              <th>Número</th>
+              <th>Comprador</th>
+              <th>Monto Rifa</th>
+              <th>Comisión Asignada</th>
+              <th>Fecha</th>
+            </tr>
+          </thead>
+          <tbody id="seller-sales-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= 5. PANEL DE USUARIO (BÓVEDA) ================= -->
+    <section id="view-user-panel" class="view-section hidden">
+      <div class="section-header">
+        <h2>Bóveda Personal del Participante</h2>
+        <p>Gestiona tus reservas activas, tickets confirmados y premios ganados.</p>
+      </div>
+
+      <div class="user-stats-grid">
+        <div class="stat-card glass-panel">
+          <span class="stat-title">En Reserva (Pendiente Pago)</span>
+          <strong class="stat-val text-amber" id="user-stat-reserved">0</strong>
+        </div>
+        <div class="stat-card glass-panel">
+          <span class="stat-title">Tickets Pagados (Activos)</span>
+          <strong class="stat-val text-cyan" id="user-stat-paid">0</strong>
+        </div>
+        <div class="stat-card glass-panel">
+          <span class="stat-title">Premios Ganados</span>
+          <strong class="stat-val text-emerald" id="user-stat-won">0</strong>
+        </div>
+        <div class="stat-card glass-panel">
+          <span class="stat-title">Inversión Confirmada</span>
+          <strong class="stat-val" id="user-stat-spent">$0</strong>
+        </div>
+      </div>
+
+      <div class="glass-panel table-wrapper">
+        <h3>Historial Sincronizado de Participaciones</h3>
+        <table class="cyber-table">
+          <thead>
+            <tr>
+              <th>Sorteo</th>
+              <th>Número</th>
+              <th>Valor</th>
+              <th>Estado</th>
+              <th>Resultado</th>
+              <th>Fecha</th>
+            </tr>
+          </thead>
+          <tbody id="user-history-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= 6. PANEL ADMINISTRATIVO ================= -->
+    <section id="view-admin-panel" class="view-section hidden">
+      <div class="section-header">
+        <h2>Núcleo de Control Administrativo FortuMazter</h2>
+        <p>Gestión integral de rifas, validación de pagos, próximos premios y control de usuarios.</p>
+      </div>
+
+      <div class="admin-stats-grid">
+        <div class="stat-card glass-panel">
+          <span class="stat-title">Recaudación Confirmada</span>
+          <strong class="stat-val text-emerald" id="admin-stat-revenue">$0</strong>
+        </div>
+        <div class="stat-card glass-panel">
+          <span class="stat-title">Boletos Vendidos</span>
+          <strong class="stat-val text-cyan" id="admin-stat-sold">0</strong>
+        </div>
+        <div class="stat-card glass-panel">
+          <span class="stat-title">Reservas por Aprobar</span>
+          <strong class="stat-val text-amber" id="admin-stat-pending">0</strong>
+        </div>
+        <div class="stat-card glass-panel">
+          <span class="stat-title">Usuarios Registrados</span>
+          <strong class="stat-val" id="admin-stat-users">0</strong>
+        </div>
+      </div>
+
+      <div class="admin-tabs">
+        <button class="admin-tab-btn active" onclick="app.switchAdminTab('raffles', this)">1. Crear y Gestionar Rifas</button>
+        <button class="admin-tab-btn" onclick="app.switchAdminTab('approvals', this)">2. Aprobar Pagos / Reservas</button>
+        <button class="admin-tab-btn" onclick="app.switchAdminTab('users', this)">3. Gestión de Usuarios y Roles</button>
+        <button class="admin-tab-btn" onclick="app.switchAdminTab('prizes', this)">4. Próximos Premios (Votación)</button>
+      </div>
+
+      <div id="admin-tab-raffles" class="admin-subpanel active">
+        <div class="admin-two-col">
+          <form id="form-create-raffle" class="glass-panel cyber-form" onsubmit="app.createRaffle(event)">
+            <h3>Lanzar Nueva Rifa</h3>
+            <div class="form-group">
+              <label>Título del Premio / Sorteo</label>
+              <input type="text" id="raffle-title" required placeholder="Ej: iPhone 16 Pro Max 256GB">
+            </div>
+            <div class="form-group">
+              <label>Descripción corta</label>
+              <input type="text" id="raffle-desc" required placeholder="Ej: Nuevo en caja sellada con garantía">
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Cantidad de Números</label>
+                <input type="number" id="raffle-count" min="10" max="500" value="50" required>
+              </div>
+              <div class="form-group">
+                <label>Precio por Número ($ COP)</label>
+                <input type="number" id="raffle-price" min="100" step="100" value="10000" required>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Fecha y Hora de Cierre (Temporizador)</label>
+              <input type="datetime-local" id="raffle-endtime" required>
+            </div>
+            <div class="form-group">
+              <label>Tipo de Rifa</label>
+              <select id="raffle-type">
+                <option value="normal">Estándar</option>
+                <option value="vip">✨ VIP / Exclusiva (Bordes Láser Neón)</option>
+              </select>
+            </div>
+            <button type="submit" class="btn-cyber-primary w-100">Desplegar Rifa en Vitrina</button>
+          </form>
+
+          <div class="glass-panel table-wrapper">
+            <h3>Rifas Activas y Control</h3>
+            <table class="cyber-table">
+              <thead>
+                <tr>
+                  <th>Rifa</th>
+                  <th>Tipo</th>
+                  <th>Boletos</th>
+                  <th>Precio</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="admin-raffles-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="admin-tab-approvals" class="admin-subpanel hidden">
+        <div class="glass-panel table-wrapper">
+          <h3>Solicitudes de Reserva y Pagos Pendientes</h3>
+          <table class="cyber-table">
+            <thead>
+              <tr>
+                <th>Rifa</th>
+                <th>Número</th>
+                <th>Usuario</th>
+                <th>Vendedor Ref.</th>
+                <th>Monto</th>
+                <th>Acciones de Pago</th>
+              </tr>
+            </thead>
+            <tbody id="admin-approvals-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="admin-tab-users" class="admin-subpanel hidden">
+        <div class="glass-panel table-wrapper">
+          <h3>Directorio de Usuarios y Rangos</h3>
+          <table class="cyber-table">
+            <thead>
+              <tr>
+                <th>Usuario</th>
+                <th>Correo</th>
+                <th>Género</th>
+                <th>Rango</th>
+                <th>Estado</th>
+                <th>Controles</th>
+              </tr>
+            </thead>
+            <tbody id="admin-users-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- SUBPANEL ADMIN: PRÓXIMOS PREMIOS PARA VOTACIÓN -->
+      <div id="admin-tab-prizes" class="admin-subpanel hidden">
+        <div class="admin-two-col">
+          <form id="form-create-prize-candidate" class="glass-panel cyber-form" onsubmit="app.createPrizeCandidate(event)">
+            <h3>Agregar Artículo a Votación</h3>
+            <div class="form-group">
+              <label>Nombre del Artículo / Premio</label>
+              <input type="text" id="prize-cand-title" required placeholder="Ej: PlayStation 5 Slim + 2 Controles">
+            </div>
+            <div class="form-group">
+              <label>Descripción / Características</label>
+              <input type="text" id="prize-cand-desc" required placeholder="Ej: Edición digital 1TB, entrega inmediata">
+            </div>
+            <div class="form-group">
+              <label>Icono o URL de Imagen (Opcional)</label>
+              <input type="text" id="prize-cand-icon" placeholder="Ej: 🎮 o https://... (dejar vacío para 🎁)">
+            </div>
+            <button type="submit" class="btn-cyber-primary w-100">Publicar en Votación</button>
+          </form>
+
+          <div class="glass-panel table-wrapper">
+            <h3>Ranking de Premios Votados</h3>
+            <table class="cyber-table">
+              <thead>
+                <tr>
+                  <th>Pos.</th>
+                  <th>Artículo</th>
+                  <th>Puntos / Votos</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="admin-prizes-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ================= MODAL DEL CARRITO ================= -->
+  <div id="cart-modal" class="modal-backdrop hidden">
+    <div class="auth-card-3d glass-panel" style="max-width: 500px; width: 92%;">
+      <button class="modal-close" onclick="app.closeCartModal()">✕</button>
+      <div class="auth-header">
+        <h2>🛒 Tu Carrito de Boletos</h2>
+        <p>Revisa tus números seleccionados antes de enviar la orden por WhatsApp.</p>
+      </div>
+
+      <div id="cart-items-container" class="cart-items-list"></div>
+
+      <div class="cart-summary">
+        <span>Total a Pagar:</span>
+        <strong id="cart-modal-total" class="text-emerald" style="font-size: 1.4rem; font-family:'Orbitron',sans-serif;">$0 COP</strong>
+      </div>
+
+      <button class="btn-whatsapp w-100" style="margin-top: 16px;" onclick="app.checkoutCartToWhatsApp()">
+        💬 Comprar por WhatsApp Ahora
+      </button>
+    </div>
+  </div>
+
+  <!-- ================= MODAL LOGIN / REGISTRO ================= -->
+  <div id="auth-modal" class="modal-backdrop hidden">
+    <div class="auth-card-3d glass-panel">
+      <div class="scanner-line"></div>
+      <button class="modal-close" onclick="app.closeAuthModal()">✕</button>
+
+      <div class="auth-header">
+        <div class="hologram-ring"></div>
+        <h2 id="auth-modal-title">ACCESO AL NÚCLEO</h2>
+        <p>Autenticación encriptada FortuMazter</p>
+      </div>
+
+      <div class="auth-switcher">
+        <button id="tab-login" class="active" onclick="app.switchAuthMode('login')">Iniciar Sesión</button>
+        <button id="tab-register" onclick="app.switchAuthMode('register')">Crear Identidad</button>
+      </div>
+
+      <form id="form-login" class="cyber-form" onsubmit="app.handleLogin(event)">
+        <div class="form-group floating">
+          <input type="email" id="login-email" required placeholder=" ">
+          <label>Correo Electrónico</label>
+        </div>
+        <div class="form-group floating">
+          <input type="password" id="login-password" required placeholder=" ">
+          <label>Clave de Seguridad</label>
+        </div>
+        <button type="submit" class="btn-cyber-primary w-100">Conectar al Sistema</button>
+        <div class="demo-credentials">
+          <small><strong>Admin Demo:</strong> admin@fortumazter.com / Admin2050!</small>
+        </div>
+      </form>
+
+      <form id="form-register" class="cyber-form hidden" onsubmit="app.handleRegister(event)">
+        <div class="form-group floating">
+          <input type="text" id="reg-name" required minlength="3" placeholder=" ">
+          <label>Nombre Completo</label>
+        </div>
+        <div class="form-group floating">
+          <input type="email" id="reg-email" required placeholder=" ">
+          <label>Correo Electrónico</label>
+        </div>
+        <div class="form-group">
+          <label class="static-label">Perfil Biométrico / Género</label>
+          <select id="reg-gender" required>
+            <option value="hombre">Hombre (Cian Neón)</option>
+            <option value="mujer">Mujer (Magenta Cuántico)</option>
+          </select>
+        </div>
+        <div class="form-group floating">
+          <input type="password" id="reg-password" required minlength="6" placeholder=" ">
+          <label>Crear Contraseña (mín. 6 caracteres)</label>
+        </div>
+        <button type="submit" class="btn-cyber-primary w-100">Registrar Identidad</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL DE CAMBIO OBLIGATORIO DE CONTRASEÑA (RESET FORZADO) -->
+  <div id="force-password-modal" class="modal-backdrop hidden">
+    <div class="auth-card-3d glass-panel">
+      <div class="scanner-line"></div>
+      <div class="auth-header">
+        <div class="hologram-ring"></div>
+        <h2>SEGURIDAD REQUERIDA</h2>
+        <p>Tu cuenta utiliza una contraseña temporal por defecto. Debes cambiarla para continuar.</p>
+      </div>
+
+      <form id="form-force-password" class="cyber-form" onsubmit="app.handleForcePasswordChange(event)">
+        <div class="form-group floating">
+          <input type="password" id="new-forced-password" required minlength="6" placeholder=" ">
+          <label>Nueva Contraseña (mín. 6 caracteres)</label>
+        </div>
+        <button type="submit" class="btn-cyber-primary w-100">Actualizar y Entrar al Sistema</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL EDITAR USUARIO -->
+  <div id="edit-user-modal" class="modal-backdrop hidden">
+    <div class="auth-card-3d glass-panel">
+      <button class="modal-close" onclick="app.closeEditUserModal()">✕</button>
+      <h3>Editar Perfil de Usuario</h3>
+      <form id="form-edit-user" class="cyber-form" onsubmit="app.saveEditedUser(event)">
+        <input type="hidden" id="edit-user-id">
+        <div class="form-group">
+          <label>Nombre</label>
+          <input type="text" id="edit-user-name" required>
+        </div>
+        <div class="form-group">
+          <label>Correo</label>
+          <input type="email" id="edit-user-email" required>
+        </div>
+        <div class="form-group">
+          <label>Género</label>
+          <select id="edit-user-gender">
+            <option value="hombre">Hombre</option>
+            <option value="mujer">Mujer</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Rango del Sistema</label>
+          <select id="edit-user-role">
+            <option value="cliente">Cliente</option>
+            <option value="vendedor">Vendedor</option>
+            <option value="admin">Administrador</option>
+          </select>
+        </div>
+        <button type="submit" class="btn-cyber-primary w-100">Guardar Cambios</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MODAL EDITAR RIFA ================= -->
+  <div id="edit-raffle-modal" class="modal-backdrop hidden">
+    <div class="auth-card-3d glass-panel" style="max-width: 480px; width: 92%;">
+      <button class="modal-close" onclick="app.closeEditRaffleModal()">✕</button>
+      <div class="auth-header">
+        <h2>Editar Parámetros de Rifa</h2>
+        <p>Modifica los datos generales sin perder las reservas activas.</p>
+      </div>
+      <form id="form-edit-raffle" class="cyber-form" onsubmit="app.saveEditedRaffle(event)">
+        <input type="hidden" id="edit-raffle-id">
+        <div class="form-group">
+          <label>Título del Sorteo</label>
+          <input type="text" id="edit-raffle-title" required>
+        </div>
+        <div class="form-group">
+          <label>Descripción corta</label>
+          <input type="text" id="edit-raffle-desc" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Cantidad de Números</label>
+            <input type="number" id="edit-raffle-count" min="10" max="500" required>
+          </div>
+          <div class="form-group">
+            <label>Precio por Número ($ COP)</label>
+            <input type="number" id="edit-raffle-price" min="100" step="100" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Fecha y Hora de Cierre</label>
+          <input type="datetime-local" id="edit-raffle-endtime" required>
+        </div>
+        <div class="form-group">
+          <label>Tipo de Rifa</label>
+          <select id="edit-raffle-type">
+            <option value="normal">Estándar</option>
+            <option value="vip">✨ VIP / Exclusiva</option>
+          </select>
+        </div>
+        <button type="submit" class="btn-cyber-primary w-100" style="margin-top: 10px;">Guardar Cambios de Rifa</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
