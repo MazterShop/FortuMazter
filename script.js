@@ -1,10 +1,16 @@
 const app = (() => {
   const STORAGE_KEY = 'FORTUMAZTER_DB_V1_COP';
+  const PYTHONANYWHERE_URL = 'https://fortumazter.pythonanywhere.com';
+  const API_STATE_URL = window.location.hostname.endsWith('pythonanywhere.com')
+    ? '/api/state'
+    : `${PYTHONANYWHERE_URL.replace(/\/$/, '')}/api/state`;
+
   const WHATSAPP_NUMBER = '573017856314'; // Cambia por tu WhatsApp real
-  const COMMISSION_PER_TICKET = 2000; // Comisión fija en COP por cada boleto colocado por vendedor
+  const DEFAULT_COMMISSION_PER_TICKET = 2000; // Comisión por defecto en COP si una rifa antigua no tiene valor
 
   let historyFilterMode = 'current_month'; // 'current_month' | 'specific_date' | 'all'
   let historySpecificDate = '';
+  let isSyncingFromServer = false;
 
   function startFaviconEffect() {
     const faviconEl = document.getElementById('favicon');
@@ -59,6 +65,7 @@ const app = (() => {
         role: 'admin',
         status: 'activo',
         commissionBalance: 0,
+        paidCommissionTotal: 0,
         mustResetPassword: false
       }
     ],
@@ -69,6 +76,7 @@ const app = (() => {
         description: 'Equipo libre de fábrica de 256GB con garantía oficial.',
         totalNumbers: 30,
         price: 10000,
+        sellerCommission: 2000,
         endTime: futureDate,
         isVip: true,
         winnerNumber: null,
@@ -77,6 +85,7 @@ const app = (() => {
         tickets: {}
       }
     ],
+    sellerSales: [],
     prizeCandidates: [
       {
         id: 'cand-01',
@@ -109,15 +118,15 @@ const app = (() => {
 
   let state = loadState();
   if (!localStorage.getItem(STORAGE_KEY)) {
-    saveState();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
 
   function checkUrlReferrer() {
     const urlParams = new URLSearchParams(window.location.search);
     const ref = urlParams.get('ref');
     if (ref) {
-      state.activeReferrer = ref;
-      saveState();
+      state.activeReferrer = ref.trim();
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     }
   }
   checkUrlReferrer();
@@ -128,6 +137,7 @@ const app = (() => {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (!parsed.prizeCandidates) parsed.prizeCandidates = structuredClone(defaultState.prizeCandidates);
+        if (!Array.isArray(parsed.sellerSales)) parsed.sellerSales = [];
         return parsed;
       }
     } catch (e) {
@@ -136,8 +146,56 @@ const app = (() => {
     return structuredClone(defaultState);
   }
 
-  function saveState() {
+  function saveState(syncRemote = true) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if (!syncRemote || isSyncingFromServer) return;
+
+    fetch(API_STATE_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        users: state.users,
+        raffles: state.raffles,
+        sellerSales: state.sellerSales,
+        prizeCandidates: state.prizeCandidates,
+        history: state.history,
+        activeRaffleId: state.activeRaffleId
+      })
+    }).catch(err => console.warn('No se pudo guardar en PythonAnywhere:', err));
+  }
+
+  async function syncFromBackend() {
+    try {
+      const res = await fetch(API_STATE_URL, { cache: 'no-store' });
+      if (!res.ok) return;
+      const remote = await res.json();
+      if (!remote || typeof remote !== 'object') return;
+
+      const localSessionUser = state.currentUserId;
+      const localCart = state.cart;
+      const localRef = state.activeReferrer;
+      const localSelectedRaffle = state.activeRaffleId;
+
+      isSyncingFromServer = true;
+      state = {
+        ...structuredClone(defaultState),
+        ...remote,
+        sellerSales: Array.isArray(remote.sellerSales) ? remote.sellerSales : [],
+        prizeCandidates: remote.prizeCandidates || structuredClone(defaultState.prizeCandidates),
+        activeRaffleId: remote.raffles?.some(r => r.id === localSelectedRaffle)
+          ? localSelectedRaffle
+          : (remote.activeRaffleId || remote.raffles?.[0]?.id || null),
+        currentUserId: localSessionUser,
+        cart: localCart,
+        activeReferrer: localRef || remote.activeReferrer || null
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      renderAll();
+    } catch (err) {
+      console.warn('No se pudo sincronizar con PythonAnywhere:', err);
+    } finally {
+      isSyncingFromServer = false;
+    }
   }
 
   function getCurrentUser() {
@@ -145,7 +203,7 @@ const app = (() => {
     const user = state.users.find(u => u.id === state.currentUserId);
     if (!user || user.status === 'suspendido') {
       state.currentUserId = null;
-      saveState();
+      saveState(false);
       return null;
     }
     return user;
@@ -234,8 +292,10 @@ const app = (() => {
     }
   }
 
-  function handleRegister(e) {
+  async function handleRegister(e) {
     e.preventDefault();
+    await syncFromBackend();
+
     const name = document.getElementById('reg-name').value.trim();
     const email = document.getElementById('reg-email').value.trim().toLowerCase();
     const gender = document.getElementById('reg-gender').value;
@@ -255,20 +315,23 @@ const app = (() => {
       role: 'cliente',
       status: 'activo',
       commissionBalance: 0,
+      paidCommissionTotal: 0,
       mustResetPassword: false
     };
 
     state.users.push(newUser);
     state.currentUserId = newUser.id;
-    saveState();
+    saveState(true);
     closeAuthModal();
     e.target.reset();
     toast(`Identidad creada. Interfaz sincronizada (${gender.toUpperCase()}).`);
     renderAll();
   }
 
-  function handleLogin(e) {
+  async function handleLogin(e) {
     e.preventDefault();
+    await syncFromBackend();
+
     const email = document.getElementById('login-email').value.trim().toLowerCase();
     const password = document.getElementById('login-password').value;
 
@@ -283,7 +346,7 @@ const app = (() => {
     }
 
     state.currentUserId = user.id;
-    saveState();
+    saveState(false);
     closeAuthModal();
     e.target.reset();
 
@@ -306,7 +369,7 @@ const app = (() => {
 
     user.password = hashPass(newPass);
     user.mustResetPassword = false;
-    saveState();
+    saveState(true);
 
     document.getElementById('force-password-modal').classList.add('hidden');
     e.target.reset();
@@ -321,7 +384,7 @@ const app = (() => {
     if (confirm(`¿Establecer la contraseña por defecto (1234) para el usuario ${user.name}? Se le exigirá cambiarla al iniciar sesión.`)) {
       user.password = hashPass('1234');
       user.mustResetPassword = true;
-      saveState();
+      saveState(true);
       renderAll();
       toast(`Contraseña de ${user.name} restablecida a 1234.`);
     }
@@ -330,14 +393,14 @@ const app = (() => {
   function logout() {
     state.currentUserId = null;
     state.cart = [];
-    saveState();
+    saveState(false);
     toast('Sesión cerrada.');
     navigate('vitrina');
   }
 
   function selectRaffle(raffleId) {
     state.activeRaffleId = raffleId;
-    saveState();
+    saveState(false);
     renderVitrina();
   }
 
@@ -372,7 +435,7 @@ const app = (() => {
       toast(`Número #${numStr} agregado al carrito 🛒`);
     }
 
-    saveState();
+    saveState(false);
     renderVitrina();
     renderCartModal();
   }
@@ -392,21 +455,32 @@ const app = (() => {
 
   function removeFromCart(raffleId, numStr) {
     state.cart = state.cart.filter(item => !(item.raffleId === raffleId && item.numStr === numStr));
-    saveState();
+    saveState(false);
     renderVitrina();
     renderCartModal();
   }
 
-  function checkoutCartToWhatsApp() {
+  async function checkoutCartToWhatsApp() {
     const user = getCurrentUser();
     if (!user || state.cart.length === 0) return;
+
+    await syncFromBackend();
 
     let totalToPay = 0;
     let detailsText = '';
     const grouped = {};
     const assignedReferrer = state.activeReferrer || 'Ninguno';
+    const itemsToReserve = [...state.cart];
 
-    state.cart.forEach(item => {
+    for (const item of itemsToReserve) {
+      const raffle = state.raffles.find(r => r.id === item.raffleId);
+      if (raffle && raffle.tickets[item.numStr]?.status === 'paid') {
+        toast(`El número #${item.numStr} acaba de ser pagado por otro usuario.`);
+        return;
+      }
+    }
+
+    itemsToReserve.forEach(item => {
       if (!grouped[item.raffleTitle]) grouped[item.raffleTitle] = [];
       grouped[item.raffleTitle].push(item.numStr);
 
@@ -433,7 +507,7 @@ const app = (() => {
     const whatsappURL = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
 
     state.cart = [];
-    saveState();
+    saveState(true);
     closeCartModal();
     renderAll();
 
@@ -464,7 +538,7 @@ const app = (() => {
       toast(`¡Voto registrado para "${cand.title}"! ⭐`);
     }
 
-    saveState();
+    saveState(true);
     renderAll();
   }
 
@@ -485,7 +559,7 @@ const app = (() => {
       voters: []
     });
 
-    saveState();
+    saveState(true);
     e.target.reset();
     toast(`Artículo "${title}" añadido a la votación.`);
     renderAll();
@@ -494,7 +568,7 @@ const app = (() => {
   function deletePrizeCandidate(candId) {
     if (!confirm('¿Eliminar este artículo de la votación?')) return;
     state.prizeCandidates = state.prizeCandidates.filter(c => c.id !== candId);
-    saveState();
+    saveState(true);
     renderAll();
     toast('Artículo eliminado.');
   }
@@ -504,7 +578,7 @@ const app = (() => {
     if (!cand) return;
     if (!confirm(`¿Reiniciar a 0 los votos de "${cand.title}"?`)) return;
     cand.voters = [];
-    saveState();
+    saveState(true);
     renderAll();
     toast('Votos reiniciados.');
   }
@@ -521,7 +595,7 @@ const app = (() => {
     if (titleInput) titleInput.value = cand.title;
     if (descInput) descInput.value = cand.description;
 
-    toast(`Premio "${cand.title}" cargado. Define cantidad, precio y fecha para desplegar la rifa.`);
+    toast(`Premio "${cand.title}" cargado. Define cantidad, precio, comisión y fecha para desplegar la rifa.`);
   }
 
   // ================= TEMPORIZADOR FLUIDO SEGUNDO A SEGUNDO =================
@@ -580,7 +654,7 @@ const app = (() => {
     updateCountdownsUI();
 
     if (updated) {
-      saveState();
+      saveState(true);
       renderAll();
     }
   }
@@ -628,6 +702,7 @@ const app = (() => {
     const description = document.getElementById('raffle-desc').value.trim();
     const totalNumbers = parseInt(document.getElementById('raffle-count').value, 10);
     const price = parseFloat(document.getElementById('raffle-price').value);
+    const sellerCommission = parseFloat(document.getElementById('raffle-commission').value) || 0;
     const endTime = document.getElementById('raffle-endtime').value;
     const isVip = document.getElementById('raffle-type').value === 'vip';
 
@@ -642,6 +717,7 @@ const app = (() => {
       description,
       totalNumbers,
       price,
+      sellerCommission,
       endTime,
       isVip,
       winnerNumber: null,
@@ -652,9 +728,9 @@ const app = (() => {
 
     state.raffles.unshift(newRaffle);
     state.activeRaffleId = newRaffle.id;
-    saveState();
+    saveState(true);
     e.target.reset();
-    toast(`Rifa "${title}" desplegada con éxito.`);
+    toast(`Rifa "${title}" desplegada (Comisión vendedor: $${sellerCommission.toLocaleString('es-CO')} COP).`);
     renderAll();
   }
 
@@ -662,7 +738,7 @@ const app = (() => {
     if (!confirm('¿Eliminar esta rifa?')) return;
     state.raffles = state.raffles.filter(r => r.id !== raffleId);
     if (state.activeRaffleId === raffleId) state.activeRaffleId = state.raffles[0]?.id || null;
-    saveState();
+    saveState(true);
     renderAll();
   }
 
@@ -675,6 +751,7 @@ const app = (() => {
     document.getElementById('edit-raffle-desc').value = raffle.description;
     document.getElementById('edit-raffle-count').value = raffle.totalNumbers;
     document.getElementById('edit-raffle-price').value = raffle.price;
+    document.getElementById('edit-raffle-commission').value = raffle.sellerCommission ?? DEFAULT_COMMISSION_PER_TICKET;
     document.getElementById('edit-raffle-endtime').value = raffle.endTime;
     document.getElementById('edit-raffle-type').value = raffle.isVip ? 'vip' : 'normal';
 
@@ -701,39 +778,172 @@ const app = (() => {
     raffle.description = document.getElementById('edit-raffle-desc').value.trim();
     raffle.totalNumbers = parseInt(document.getElementById('edit-raffle-count').value, 10);
     raffle.price = newPrice;
+    raffle.sellerCommission = parseFloat(document.getElementById('edit-raffle-commission').value) || 0;
     raffle.endTime = document.getElementById('edit-raffle-endtime').value;
     raffle.isVip = document.getElementById('edit-raffle-type').value === 'vip';
 
-    saveState();
+    saveState(true);
     closeEditRaffleModal();
     renderAll();
     toast(`Rifa "${raffle.title}" actualizada correctamente.`);
+  }
+
+  function findSellerByReferrer(refName) {
+    if (!refName || refName === 'Ninguno') return null;
+    const cleanRef = refName.trim().toLowerCase();
+    return state.users.find(
+      u => u.email.split('@')[0].toLowerCase() === cleanRef || u.name.trim().toLowerCase() === cleanRef
+    ) || null;
+  }
+
+  function getSellerSalesRecords(sellerUser) {
+    const identifier = sellerUser.email.split('@')[0].toLowerCase();
+    const sellerName = sellerUser.name.trim().toLowerCase();
+    const records = Array.isArray(state.sellerSales) ? [...state.sellerSales] : [];
+    const seenKeys = new Set(records.map(rec => `${rec.raffleId}::${rec.numStr}`));
+
+    // Compatibilidad con ventas antiguas guardadas solo dentro de raffles.tickets
+    state.raffles.forEach(r => {
+      const raffleComm = r.sellerCommission ?? DEFAULT_COMMISSION_PER_TICKET;
+      Object.entries(r.tickets || {}).forEach(([numStr, t]) => {
+        if (t.status === 'paid' && t.referrer) {
+          const refLower = t.referrer.trim().toLowerCase();
+          if (refLower === identifier || refLower === sellerName) {
+            const key = `${r.id}::${numStr}`;
+            if (!seenKeys.has(key)) {
+              records.push({
+                id: `legacy-${r.id}-${numStr}`,
+                sellerId: sellerUser.id,
+                referrerCode: identifier,
+                raffleId: r.id,
+                raffleTitle: r.title,
+                numStr,
+                buyerName: t.userName,
+                ticketPrice: r.price,
+                commission: t.commissionEarned ?? raffleComm,
+                payoutStatus: t.commissionPaidOut ? 'pagado' : 'pendiente',
+                createdAt: t.updatedAt || new Date().toLocaleString(),
+                paidOutAt: t.commissionPaidOutAt || null
+              });
+            }
+          }
+        }
+      });
+    });
+
+    return records.filter(rec =>
+      rec.sellerId === sellerUser.id ||
+      (rec.referrerCode && rec.referrerCode.toLowerCase() === identifier) ||
+      (rec.referrerCode && rec.referrerCode.toLowerCase() === sellerName)
+    );
   }
 
   function approveTicketPayment(raffleId, numStr) {
     const raffle = state.raffles.find(r => r.id === raffleId);
     if (!raffle || !raffle.tickets[numStr]) return;
 
-    raffle.tickets[numStr].status = 'paid';
+    const ticket = raffle.tickets[numStr];
+    if (ticket.status === 'paid') return;
 
-    const refName = raffle.tickets[numStr].referrer;
+    const commissionAmount = raffle.sellerCommission ?? DEFAULT_COMMISSION_PER_TICKET;
+    const nowStr = new Date().toLocaleString();
+
+    ticket.status = 'paid';
+    ticket.commissionEarned = commissionAmount;
+    ticket.updatedAt = nowStr;
+
+    const refName = ticket.referrer;
+    const seller = findSellerByReferrer(refName);
+
     if (refName && refName !== 'Ninguno') {
-      const seller = state.users.find(u => u.name.toLowerCase() === refName.toLowerCase() || u.email.split('@')[0] === refName);
+      if (!Array.isArray(state.sellerSales)) state.sellerSales = [];
+      state.sellerSales.unshift({
+        id: 'sale-' + Date.now() + '-' + numStr,
+        sellerId: seller ? seller.id : null,
+        referrerCode: seller ? seller.email.split('@')[0] : refName,
+        raffleId: raffle.id,
+        raffleTitle: raffle.title,
+        numStr,
+        buyerName: ticket.userName,
+        ticketPrice: raffle.price,
+        commission: commissionAmount,
+        payoutStatus: 'pendiente',
+        createdAt: nowStr,
+        paidOutAt: null
+      });
+
       if (seller) {
-        seller.commissionBalance = (seller.commissionBalance || 0) + COMMISSION_PER_TICKET;
+        const pendingSales = getSellerSalesRecords(seller).filter(s => s.payoutStatus !== 'pagado');
+        seller.commissionBalance = pendingSales.reduce((acc, s) => acc + (Number(s.commission) || 0), 0);
       }
     }
 
-    saveState();
-    toast(`Boleto #${numStr} aprobado como PAGADO y comisión asignada.`);
+    saveState(true);
+    toast(
+      refName && refName !== 'Ninguno'
+        ? `Boleto #${numStr} aprobado (+$${commissionAmount.toLocaleString('es-CO')} COP al saldo del vendedor).`
+        : `Boleto #${numStr} aprobado como PAGADO.`
+    );
     renderAll();
+  }
+
+  function settleSellerBalance(sellerId) {
+    const adminUser = getCurrentUser();
+    if (!adminUser || adminUser.role !== 'admin') return;
+
+    const seller = state.users.find(u => u.id === sellerId);
+    if (!seller) return;
+
+    const sales = getSellerSalesRecords(seller);
+    const pendingSales = sales.filter(s => s.payoutStatus !== 'pagado');
+    const pendingTotal = pendingSales.reduce((acc, s) => acc + (Number(s.commission) || 0), 0);
+
+    if (pendingTotal <= 0 && (seller.commissionBalance || 0) <= 0) {
+      toast('Este vendedor no tiene saldo pendiente por cancelar.');
+      return;
+    }
+
+    const amountToPay = pendingTotal > 0 ? pendingTotal : (seller.commissionBalance || 0);
+    if (!confirm(`¿Confirmar que ya se le pagaron $${amountToPay.toLocaleString('es-CO')} COP a ${seller.name}? Su saldo pendiente quedará en $0 COP.`)) {
+      return;
+    }
+
+    const paidDate = new Date().toLocaleString();
+    if (!Array.isArray(state.sellerSales)) state.sellerSales = [];
+
+    pendingSales.forEach(item => {
+      const existing = state.sellerSales.find(s => s.id === item.id);
+      if (existing) {
+        existing.payoutStatus = 'pagado';
+        existing.paidOutAt = paidDate;
+      } else {
+        state.sellerSales.unshift({
+          ...item,
+          payoutStatus: 'pagado',
+          paidOutAt: paidDate
+        });
+      }
+
+      const r = state.raffles.find(x => x.id === item.raffleId);
+      if (r && r.tickets[item.numStr]) {
+        r.tickets[item.numStr].commissionPaidOut = true;
+        r.tickets[item.numStr].commissionPaidOutAt = paidDate;
+      }
+    });
+
+    seller.commissionBalance = 0;
+    seller.paidCommissionTotal = (seller.paidCommissionTotal || 0) + amountToPay;
+
+    saveState(true);
+    renderAll();
+    toast(`¡Valor cancelado! Saldo pendiente de ${seller.name} reiniciado a $0 COP.`);
   }
 
   function releaseTicketReservation(raffleId, numStr) {
     const raffle = state.raffles.find(r => r.id === raffleId);
     if (!raffle || !raffle.tickets[numStr]) return;
     delete raffle.tickets[numStr];
-    saveState();
+    saveState(true);
     renderAll();
   }
 
@@ -772,7 +982,7 @@ const app = (() => {
     u.email = document.getElementById('edit-user-email').value.trim().toLowerCase();
     u.gender = document.getElementById('edit-user-gender').value;
     u.role = document.getElementById('edit-user-role').value;
-    saveState();
+    saveState(true);
     closeEditUserModal();
     renderAll();
     toast('Usuario actualizado.');
@@ -782,7 +992,7 @@ const app = (() => {
     const u = state.users.find(x => x.id === userId);
     if (!u || u.role === 'admin') return;
     u.status = u.status === 'activo' ? 'suspendido' : 'activo';
-    saveState();
+    saveState(true);
     renderAll();
   }
 
@@ -790,7 +1000,7 @@ const app = (() => {
     const u = state.users.find(x => x.id === userId);
     if (!u || u.role === 'admin' || !confirm('¿Eliminar usuario?')) return;
     state.users = state.users.filter(x => x.id !== userId);
-    saveState();
+    saveState(true);
     renderAll();
   }
 
@@ -1083,38 +1293,49 @@ const app = (() => {
     const inputLink = document.getElementById('seller-ref-link-input');
     if (inputLink) inputLink.value = link;
 
-    let soldCount = 0;
-    let salesRows = '';
+    const records = getSellerSalesRecords(user);
+    let pendingCommission = 0;
+    let paidCommission = 0;
     let totalRevenueGenerated = 0;
 
-    state.raffles.forEach(r => {
-      Object.entries(r.tickets).forEach(([numStr, t]) => {
-        if (t.status === 'paid' && t.referrer && t.referrer.toLowerCase() === identifier.toLowerCase()) {
-          soldCount++;
-          totalRevenueGenerated += r.price;
-          salesRows += `
-            <tr>
-              <td><strong>${escapeHTML(r.title)}</strong></td>
-              <td>#${numStr}</td>
-              <td>${escapeHTML(t.userName)}</td>
-              <td>$${r.price.toLocaleString('es-CO')} COP</td>
-              <td><span class="text-emerald">+$${COMMISSION_PER_TICKET.toLocaleString('es-CO')} COP</span></td>
-              <td>${escapeHTML(t.updatedAt)}</td>
-            </tr>
-          `;
-        }
-      });
-    });
+    const salesRows = records.map(rec => {
+      const comm = Number(rec.commission) || 0;
+      const isPaidOut = rec.payoutStatus === 'pagado';
+      if (isPaidOut) {
+        paidCommission += comm;
+      } else {
+        pendingCommission += comm;
+      }
+      totalRevenueGenerated += Number(rec.ticketPrice) || 0;
 
-    const totalCommission = (user.commissionBalance || 0) + (soldCount * COMMISSION_PER_TICKET);
+      return `
+        <tr>
+          <td><strong>${escapeHTML(rec.raffleTitle)}</strong></td>
+          <td>#${rec.numStr}</td>
+          <td>${escapeHTML(rec.buyerName)}</td>
+          <td>$${(Number(rec.ticketPrice) || 0).toLocaleString('es-CO')} COP</td>
+          <td><span class="text-emerald">+$${comm.toLocaleString('es-CO')} COP</span></td>
+          <td>
+            <span class="badge-status ${isPaidOut ? 'status-paid' : 'status-reserved'}">
+              ${isPaidOut ? 'CANCELADO' : 'PENDIENTE'}
+            </span>
+          </td>
+          <td>${escapeHTML(isPaidOut && rec.paidOutAt ? rec.paidOutAt : rec.createdAt)}</td>
+        </tr>
+      `;
+    }).join('');
 
-    document.getElementById('seller-stat-commission').textContent = `$${totalCommission.toLocaleString('es-CO')} COP`;
-    document.getElementById('seller-stat-sold').textContent = soldCount;
+    const finalPaidTotal = Math.max(paidCommission, user.paidCommissionTotal || 0);
+
+    document.getElementById('seller-stat-commission').textContent = `$${pendingCommission.toLocaleString('es-CO')} COP`;
+    const paidEl = document.getElementById('seller-stat-paid-commission');
+    if (paidEl) paidEl.textContent = `$${finalPaidTotal.toLocaleString('es-CO')} COP`;
+    document.getElementById('seller-stat-sold').textContent = records.length;
 
     const revEl = document.getElementById('seller-stat-revenue');
     if (revEl) revEl.textContent = `$${totalRevenueGenerated.toLocaleString('es-CO')} COP`;
 
-    document.getElementById('seller-sales-tbody').innerHTML = salesRows || `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">Aún no tienes ventas acreditadas por referidos.</td></tr>`;
+    document.getElementById('seller-sales-tbody').innerHTML = salesRows || `<tr><td colspan="7" style="text-align:center; color:var(--text-muted);">Aún no tienes ventas acreditadas por referidos.</td></tr>`;
   }
 
   function renderCartModal() {
@@ -1186,6 +1407,7 @@ const app = (() => {
     let revenue = 0, sold = 0, pending = 0, approvals = '';
 
     state.raffles.forEach(r => {
+      const comm = r.sellerCommission ?? DEFAULT_COMMISSION_PER_TICKET;
       Object.entries(r.tickets).forEach(([numStr, t]) => {
         if (t.status === 'paid') { sold++; revenue += r.price; }
         else if (t.status === 'reserved') {
@@ -1196,7 +1418,10 @@ const app = (() => {
               <td><strong>#${numStr}</strong></td>
               <td>${escapeHTML(t.userName)}</td>
               <td><span style="color:var(--primary);">${escapeHTML(t.referrer || 'Ninguno')}</span></td>
-              <td>$${r.price.toLocaleString('es-CO')}</td>
+              <td>
+                $${r.price.toLocaleString('es-CO')}
+                ${t.referrer && t.referrer !== 'Ninguno' ? `<br><small class="text-emerald">Comisión: $${comm.toLocaleString('es-CO')}</small>` : ''}
+              </td>
               <td class="action-group">
                 <button class="btn-xs btn-approve" onclick="app.approveTicketPayment('${r.id}', '${numStr}')">Aceptar</button>
                 <button class="btn-xs btn-del" onclick="app.releaseTicketReservation('${r.id}', '${numStr}')">Liberar</button>
@@ -1207,17 +1432,57 @@ const app = (() => {
       });
     });
 
+    let totalSellerDebt = 0;
+    const sellersList = state.users.filter(u => u.role === 'vendedor' || getSellerSalesRecords(u).length > 0);
+    const sellersRows = sellersList.map(seller => {
+      const records = getSellerSalesRecords(seller);
+      const pendingRecords = records.filter(s => s.payoutStatus !== 'pagado');
+      const paidRecords = records.filter(s => s.payoutStatus === 'pagado');
+      const debt = pendingRecords.reduce((acc, s) => acc + (Number(s.commission) || 0), 0);
+      const alreadyPaid = Math.max(
+        paidRecords.reduce((acc, s) => acc + (Number(s.commission) || 0), 0),
+        seller.paidCommissionTotal || 0
+      );
+      totalSellerDebt += debt;
+
+      return `
+        <tr>
+          <td><strong>${escapeHTML(seller.name)}</strong><br><small style="color:var(--text-muted);">${escapeHTML(seller.email)}</small></td>
+          <td><span class="role-tag">${escapeHTML(seller.email.split('@')[0])}</span></td>
+          <td>${pendingRecords.length} boleta(s)</td>
+          <td><strong class="${debt > 0 ? 'text-amber' : 'text-emerald'}">$${debt.toLocaleString('es-CO')} COP</strong></td>
+          <td>$${alreadyPaid.toLocaleString('es-CO')} COP</td>
+          <td class="action-group">
+            ${debt > 0
+              ? `<button class="btn-xs btn-approve" onclick="app.settleSellerBalance('${seller.id}')">Valor Cancelado</button>`
+              : `<span class="badge-status status-paid">AL DÍA ($0)</span>`
+            }
+          </td>
+        </tr>
+      `;
+    }).join('');
+
     document.getElementById('admin-stat-revenue').textContent = `$${revenue.toLocaleString('es-CO')}`;
     document.getElementById('admin-stat-sold').textContent = sold;
     document.getElementById('admin-stat-pending').textContent = pending;
+    const debtEl = document.getElementById('admin-stat-seller-debt');
+    if (debtEl) debtEl.textContent = `$${totalSellerDebt.toLocaleString('es-CO')}`;
     document.getElementById('admin-stat-users').textContent = state.users.length;
+
+    const adminSellersTbody = document.getElementById('admin-sellers-tbody');
+    if (adminSellersTbody) {
+      adminSellersTbody.innerHTML = sellersRows || `<tr><td colspan="6" style="text-align:center; color:var(--text-muted);">No hay vendedores con comisiones registradas.</td></tr>`;
+    }
 
     document.getElementById('admin-raffles-tbody').innerHTML = state.raffles.map(r => `
       <tr>
         <td><strong>${escapeHTML(r.title)}</strong></td>
         <td>${r.isVip ? '⭐ VIP' : 'Estándar'}</td>
         <td>${r.totalNumbers}</td>
-        <td>$${r.price.toLocaleString('es-CO')}</td>
+        <td>
+          $${r.price.toLocaleString('es-CO')}
+          <br><small class="text-emerald">Comisión: $${(r.sellerCommission ?? DEFAULT_COMMISSION_PER_TICKET).toLocaleString('es-CO')}</small>
+        </td>
         <td class="action-group">
           <button class="btn-xs btn-edit" onclick="app.openEditRaffleModal('${r.id}')">Editar</button>
           <button class="btn-xs btn-del" onclick="app.deleteRaffle('${r.id}')">Borrar</button>
@@ -1281,13 +1546,15 @@ const app = (() => {
     startFaviconEffect();
     renderAll();
     checkTimersAndDraws();
+    syncFromBackend();
+    setInterval(syncFromBackend, 3000);
   });
 
   return {
     navigate, openAuthModal, closeAuthModal, switchAuthMode, handleRegister, handleLogin, logout,
     selectRaffle, handleTicketClick, openCartModal, closeCartModal, removeFromCart, checkoutCartToWhatsApp,
     switchAdminTab, createRaffle, deleteRaffle, openEditRaffleModal, closeEditRaffleModal, saveEditedRaffle,
-    approveTicketPayment, releaseTicketReservation, openEditUserModal, closeEditUserModal, saveEditedUser,
+    approveTicketPayment, settleSellerBalance, releaseTicketReservation, openEditUserModal, closeEditUserModal, saveEditedUser,
     toggleSuspendUser, deleteUser, copySellerLink, adminResetUserPassword, handleForcePasswordChange,
     filterHistoryByDate, resetHistoryFilter, showAllHistory,
     toggleVotePrize, createPrizeCandidate, deletePrizeCandidate, resetPrizeVotes, launchRaffleFromCandidate
