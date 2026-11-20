@@ -1,6 +1,6 @@
 const app = (() => {
   const STORAGE_KEY = 'FORTUMAZTER_DB_V1_COP';
-  const WHATSAPP_NUMBER = '573001234567'; // Cambia por tu WhatsApp real
+  const WHATSAPP_NUMBER = '573017856314'; // Cambia por tu WhatsApp real
   const COMMISSION_PER_TICKET = 2000; // Comisión fija en COP por cada boleto colocado por vendedor
 
   let historyFilterMode = 'current_month'; // 'current_month' | 'specific_date' | 'all'
